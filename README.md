@@ -1,15 +1,20 @@
-# Leaky Bucket Redis
+# Go Leaky Bucket Rate Limiter with Redis
 
-A distributed rate limiting implementation using the Leaky Bucket algorithm with Redis as the backend. Designed for high-performance, distributed systems that need reliable rate limiting across multiple instances.
+A high-performance **distributed rate limiter in Go** built using the **Leaky Bucket algorithm** and **Redis** as the backend.  
+Ideal for APIs, microservices, and distributed systems that need **accurate request throttling** across multiple instances.
+
+---
 
 ## Features
 
-- **Distributed**: Works seamlessly across multiple application instances
-- **High Precision**: Sub-second accuracy using nanosecond timestamps
-- **Atomic Operations**: Uses Redis Lua scripts for consistency
-- **Context-Aware**: Supports Go context for cancellation and timeouts
-- **Production Ready**: Comprehensive test coverage and error handling
-- **Zero Dependencies**: Only requires Redis and go-redis client
+- **Redis-Backed Distributed Limiting** – works across multiple Go servers
+- **Precise Timing** – sub-second accuracy via nanosecond timestamps  
+- **Atomic Lua Scripts** – ensures consistent rate control in Redis  
+- **Context-Aware** – supports `context.Context` for cancellation & timeouts  
+- **Production-Ready** – robust error handling and full test coverage  
+- **Lightweight** – no dependencies beyond Go and Redis  
+
+---
 
 ## Installation
 
@@ -18,10 +23,12 @@ go get github.com/alibazlamit/leaky_bucket_redis
 ```
 
 **Requirements:**
-- Go 1.21 or higher
-- Redis 6.0 or higher
+- Go 1.21+
+- Redis 6.0+
 
-## Quick Start
+---
+
+## Quick Example (Leaky Bucket + Redis)
 
 ```go
 package main
@@ -36,185 +43,138 @@ import (
 )
 
 func main() {
-    // Initialize Redis client
-    client := redis.NewClient(&redis.Options{
-        Addr: "localhost:6379",
-    })
+    client := redis.NewClient(&redis.Options{Addr: "localhost:6379"})
     defer client.Close()
 
-    // Create rate limiter: 10 requests per second
-    limiter := leaky_bucket.NewLeakyBucket(client, "my_rate_limit", 10.0)
-
-    // Check if request is allowed
+    limiter := leaky_bucket.NewLeakyBucket(client, "api_limit", 10.0) // 10 req/sec
     ctx := context.Background()
-    waitTime := limiter.Allow(ctx)
 
-    if waitTime > 0 {
-        fmt.Printf("Rate limited. Retry after %.2f seconds\n", waitTime.Seconds())
-    } else {
-        fmt.Println("Request allowed!")
+    wait := limiter.Allow(ctx)
+    if wait > 0 {
+        fmt.Printf("Rate limited. Retry after %.2f seconds\n", wait.Seconds())
+        return
     }
+
+    fmt.Println("Request allowed!")
 }
 ```
+
+---
 
 ## API Reference
 
 ### `NewLeakyBucket(client *redis.Client, key string, rate float64) *LeakyBucketRedis`
 
-Creates a new rate limiter instance.
+Creates a new **Redis-based rate limiter** using the Leaky Bucket algorithm.
 
-**Parameters:**
-- `client`: Redis client connection
-- `key`: Unique identifier for this rate limiter (e.g., "api_limit", "user:123")
-- `rate`: Requests per second (e.g., 10.0 = 10 requests/second)
+| Parameter | Type | Description |
+|------------|------|-------------|
+| `client` | *redis.Client | Active Redis connection |
+| `key` | string | Unique key for rate limit scope (e.g. `"user:123"`) |
+| `rate` | float64 | Allowed requests per second |
 
-**Returns:**
-- `*LeakyBucketRedis`: Rate limiter instance, or `nil` if parameters are invalid
-
-### `Allow(ctx context.Context) time.Duration`
-
-Checks if a request should be allowed based on the rate limit.
-
-**Parameters:**
-- `ctx`: Context for cancellation and timeout
-
-**Returns:**
-- `time.Duration`: 
-  - `0` if request is allowed
-  - `> 0` indicating how long to wait before retrying
-
-**Behavior:**
-- Returns immediately with wait time if rate limited
-- Automatically fails open on Redis errors (allows request)
-- Thread-safe and supports concurrent requests
-
-## Usage Examples
-
-### HTTP API Rate Limiting
-
-```go
-http.HandleFunc("/api/data", func(w http.ResponseWriter, r *http.Request) {
-    limiter := leaky_bucket.NewLeakyBucket(client, "api_rate_limit", 10.0)
-    waitTime := limiter.Allow(r.Context())
-
-    if waitTime > 0 {
-        w.Header().Set("Retry-After", fmt.Sprintf("%.0f", waitTime.Seconds()))
-        w.WriteHeader(http.StatusTooManyRequests)
-        fmt.Fprintf(w, "Rate limit exceeded. Retry after %.2f seconds\n", waitTime.Seconds())
-        return
-    }
-
-    // Process request
-    w.WriteHeader(http.StatusOK)
-    fmt.Fprintf(w, "Success!\n")
-})
-```
-
-### Per-User Rate Limiting
-
-```go
-func rateLimitUser(userID string, client *redis.Client) bool {
-    key := fmt.Sprintf("user_rate_limit:%s", userID)
-    limiter := leaky_bucket.NewLeakyBucket(client, key, 5.0) // 5 req/sec per user
-    
-    ctx := context.Background()
-    waitTime := limiter.Allow(ctx)
-    
-    return waitTime == 0 // true if allowed
-}
-```
-
-### Batch Processing with Rate Limiting
-
-```go
-func processBatch(items []string, client *redis.Client) {
-    limiter := leaky_bucket.NewLeakyBucket(client, "batch_api", 2.0) // 2 req/sec
-    
-    for _, item := range items {
-        ctx := context.Background()
-        waitTime := limiter.Allow(ctx)
-        
-        if waitTime > 0 {
-            time.Sleep(waitTime) // Wait before processing
-        }
-        
-        // Process item (e.g., call external API)
-        processItem(item)
-    }
-}
-```
-
-## How It Works
-
-The Leaky Bucket algorithm controls the rate of requests by:
-
-1. **Token Tracking**: Each allowed request adds a "token" with a timestamp to a Redis sorted set
-2. **Rate Calculation**: The bucket "leaks" at a constant rate (your specified requests/second)
-3. **Cleanup**: Old tokens beyond the bucket capacity are automatically removed
-4. **Wait Time**: If bucket is full, calculates exact wait time until a token can be added
-
-**Key advantages:**
-- Smooths burst traffic into steady flow
-- Distributed across multiple servers via Redis
-- Atomic operations prevent race conditions
-- Sub-second precision for accurate rate limiting
-
-## Running Examples
-
-The `examples/` directory contains complete working examples:
-
-```bash
-# HTTP API rate limiting
-go run examples/http_api.go
-
-# Per-user rate limiting
-go run examples/per_user_limiting.go
-
-# Batch processing with rate limiting
-go run examples/batch_processing.go
-```
-
-## Testing
-
-Run the comprehensive test suite:
-
-```bash
-# Run all tests
-go test ./leaky_bucket -v
-
-# Run with coverage
-go test ./leaky_bucket -cover
-
-# Run benchmarks
-go test ./leaky_bucket -bench=.
-```
-
-**Test Coverage:**
-- Basic allow/deny behavior
-- Rate limit enforcement
-- Concurrent request handling
-- Token refill over time
-- Invalid configuration handling
-- Context cancellation
-- Different rate configurations
-
-## Performance
-
-Benchmarks on standard hardware:
-
-```
-BenchmarkLeakyBucketRedis_Allow-8        10000    ~150 µs/op
-BenchmarkLeakyBucketRedis_Concurrent-8    5000    ~300 µs/op
-```
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-## License
-
-MIT License - see LICENSE file for details
+Returns: `*LeakyBucketRedis`
 
 ---
 
-If you find this implementation useful, feel free to drop a star! ⭐
+### `Allow(ctx context.Context) time.Duration`
+
+Checks if a request is allowed and returns the **wait time** before retrying.
+
+- Returns `0` → request allowed  
+- Returns `>0` → number of seconds to wait before next attempt  
+
+Behavior:
+- Thread-safe  
+- Atomic Redis operations  
+- Fails open if Redis unavailable (never blocks)  
+
+---
+
+## Use Cases
+
+### 1. HTTP API Rate Limiting
+
+```go
+limiter := leaky_bucket.NewLeakyBucket(client, "api_global", 10.0)
+wait := limiter.Allow(r.Context())
+```
+
+### 2. Per-User Request Throttling
+```go
+key := fmt.Sprintf("user_limit:%s", userID)
+limiter := leaky_bucket.NewLeakyBucket(client, key, 5.0)
+```
+
+### 3. Background Jobs / Batch Tasks
+```go
+limiter := leaky_bucket.NewLeakyBucket(client, "batch_limit", 2.0)
+```
+
+---
+
+## ⚙️ How the Leaky Bucket Algorithm Works
+
+The **Leaky Bucket algorithm** is a classic rate-limiting technique.  
+This Go implementation with Redis provides **distributed consistency** and **precise control**.
+
+1. Each incoming request adds a “token” to a Redis sorted set.  
+2. Tokens “leak” at a steady rate based on your configured limit.  
+3. When the bucket is full, new requests must wait until older tokens expire.  
+4. Wait time = exact time until a new token can be added.  
+
+Smooths bursts into a steady flow  
+Works across multiple servers  
+Atomic and thread-safe  
+
+---
+
+## Performance
+
+| Benchmark | Ops/sec | Avg Time |
+|------------|----------|-----------|
+| `Allow` | 10,000 | ~150 µs/op |
+| `Concurrent` | 5,000 | ~300 µs/op |
+
+---
+
+## Testing
+
+```bash
+go test ./leaky_bucket -v
+go test ./leaky_bucket -cover
+go test ./leaky_bucket -bench=.
+```
+
+Tests cover:
+- Allow/Deny behavior  
+- Redis failure tolerance  
+- Context cancellation  
+- Concurrency safety  
+
+---
+
+## Examples
+
+In `examples/` directory:
+- `http_api.go` → API rate limiting  
+- `per_user_limiting.go` → user-based limits  
+- `batch_processing.go` → throttled batch jobs  
+
+Run an example:
+```bash
+go run examples/http_api.go
+```
+
+---
+
+## 🤝 Contributing
+
+Pull requests welcome!  
+If you find this **Go rate limiter using Redis** helpful, give it a ⭐ on GitHub!
+
+---
+
+## 📄 License
+
+MIT License – see LICENSE for details
