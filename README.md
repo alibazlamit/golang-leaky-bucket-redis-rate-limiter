@@ -1,7 +1,25 @@
 # Go Leaky Bucket Rate Limiter with Redis
 
+[![Run Tests](https://github.com/alibazlamit/leaky_bucket_redis/actions/workflows/test.yml/badge.svg)](https://github.com/alibazlamit/leaky_bucket_redis/actions/workflows/test.yml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/alibazlamit/leaky_bucket_redis)](https://goreportcard.com/report/github.com/alibazlamit/leaky_bucket_redis)
+[![Go Reference](https://pkg.go.dev/badge/github.com/alibazlamit/leaky_bucket_redis.svg)](https://pkg.go.dev/github.com/alibazlamit/leaky_bucket_redis)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 A high-performance **distributed rate limiter in Go** built using the **Leaky Bucket algorithm** and **Redis** as the backend.  
 Ideal for APIs, microservices, and distributed systems that need **accurate request throttling** across multiple instances.
+
+⭐ **If you find this library useful, please consider giving it a star! It helps others discover this project.** ⭐
+
+---
+
+## Why Use This Library?
+
+While there are several rate limiters available for Go, this library specifically implements a strict **Leaky Bucket** algorithm via highly optimized atomic Lua scripts in Redis. This provides:
+
+- **Exact Smooth Throttling:** Token buckets allow bursts; leaky buckets strictly smooth out requests to a constant, predictable rate.
+- **Zero-Dependency Core:** Only depends on the official `go-redis` client, keeping your modules clean.
+- **Sub-Second Precision:** Millisecond/nanosecond resolution ensures perfect timing between cross-server requests.
+- **Fail-Open Fallback:** Designed so that if your Redis node suddenly becomes unreachable, it won't indefinitely block or take down your API.
 
 ---
 
@@ -170,8 +188,7 @@ go run examples/http_api.go
 
 ## 🤝 Contributing
 
-Pull requests welcome!  
-If you find this **Go rate limiter using Redis** helpful, give it a ⭐ on GitHub!
+Pull requests and issues are highly welcome! We'd love to have your contributions.
 
 ---
 
