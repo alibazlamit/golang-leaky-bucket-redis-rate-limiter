@@ -12,7 +12,7 @@ import (
 )
 
 func main() {
-	fmt.Println("=== Leaky Bucket Redis Demo ===\n")
+	fmt.Println("=== Leaky Bucket Redis Demo ===")
 
 	// Initialize Redis client
 	client := redis.NewClient(&redis.Options{

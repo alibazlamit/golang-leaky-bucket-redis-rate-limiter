@@ -1,3 +1,5 @@
+//go:build ignore
+
 // Batch processing with rate limiting example
 package main
 

@@ -1,3 +1,5 @@
+//go:build ignore
+
 // HTTP middleware pattern example
 package main
 

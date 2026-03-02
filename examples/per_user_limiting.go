@@ -1,3 +1,5 @@
+//go:build ignore
+
 // Per-user rate limiting example
 package main
 

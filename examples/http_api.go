@@ -1,3 +1,5 @@
+//go:build ignore
+
 // Simple HTTP API rate limiting example
 package main
 
