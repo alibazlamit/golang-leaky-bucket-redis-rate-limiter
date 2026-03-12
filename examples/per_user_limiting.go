@@ -4,7 +4,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"net/http"
@@ -21,34 +20,32 @@ func main() {
 	})
 	defer client.Close()
 
-	// Test Redis connection
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	if err := client.Ping(ctx).Err(); err != nil {
-		log.Fatalf("Failed to connect to Redis: %v", err)
-	}
+	// 1. Create a single rate limiter instance for all users
+	// This illustrates the "plug and play" efficiency of the new API.
+	limiter := leaky_bucket.New(client, 5.0, leaky_bucket.WithBurst(3))
 
 	// HTTP handler with per-user rate limiting
 	http.HandleFunc("/api/user/data", func(w http.ResponseWriter, r *http.Request) {
-		// Get user ID from request (in real app, from auth token)
+		// Get user ID from request
 		userID := r.URL.Query().Get("user_id")
 		if userID == "" {
 			http.Error(w, "user_id parameter required", http.StatusBadRequest)
 			return
 		}
 
-		// Create rate limiter for this specific user: 5 requests per second
+		// 2. Use the same limiter instance with a user-specific key
 		key := fmt.Sprintf("user_rate_limit:%s", userID)
-		rateLimiter := leaky_bucket.NewLeakyBucket(client, key, 5.0)
+		res, err := limiter.Allow(r.Context(), key)
+		if err != nil {
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
 
-		waitTime := rateLimiter.Allow(r.Context())
-
-		if waitTime > 0 {
-			w.Header().Set("Retry-After", fmt.Sprintf("%.0f", waitTime.Seconds()))
+		if !res.Allowed {
+			w.Header().Set("Retry-After", fmt.Sprintf("%.0f", res.WaitTime.Seconds()))
 			w.WriteHeader(http.StatusTooManyRequests)
 			fmt.Fprintf(w, "Rate limit exceeded for user %s. Retry after %.2f seconds\n",
-				userID, waitTime.Seconds())
+				userID, res.WaitTime.Seconds())
 			return
 		}
 
@@ -59,8 +56,8 @@ func main() {
 	})
 
 	fmt.Println("Per-user API server starting on :8080")
-	fmt.Println("Rate limit: 5 requests per second per user")
-	fmt.Println("Try: curl 'http://localhost:8080/api/user/data?user_id=user123'")
+	fmt.Println("Rate limit: 5 requests per second per user (Burst: 3)")
+	fmt.Println("Try: curl 'http://localhost:8080/api/user/data?user_id=user1' and '...user_id=user2'")
 
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }

@@ -46,7 +46,23 @@ go get github.com/alibazlamit/leaky_bucket_redis
 
 ---
 
-## Quick Example (Leaky Bucket + Redis)
+## How it Works: GCRA Algorithm
+
+This library uses the **Generic Cell Rate Algorithm (GCRA)**, which is the industry standard for sophisticated rate limiting. It's more efficient than "fixed window" or "sliding log" algorithms because it requires only a single Redis key and provides nanosecond precision.
+
+```mermaid
+graph TD
+    A[Request Arrives] --> B{Calculate TAT}
+    B --> C["New TAT = max(Now, Old TAT) + Emission Interval"]
+    C --> D{New TAT > Now + Burst?}
+    D -- Yes --> E[DENIED: Wait until TAT - Burst]
+    D -- No --> F[ALLOWED: Update TAT in Redis]
+```
+
+---
+
+## Quick Start
+Example (Plug & Play)
 
 ```go
 package main
@@ -61,51 +77,117 @@ import (
 )
 
 func main() {
+    // 1. Initialize Redis (UniversalClient supported)
     client := redis.NewClient(&redis.Options{Addr: "localhost:6379"})
     defer client.Close()
 
-    limiter := leaky_bucket.NewLeakyBucket(client, "api_limit", 10.0) // 10 req/sec
+    // 2. Create Limiter: 10 req/sec with burst of 5
+    limiter := leaky_bucket.New(client, 10.0, leaky_bucket.WithBurst(5))
     ctx := context.Background()
 
-    wait := limiter.Allow(ctx)
-    if wait > 0 {
-        fmt.Printf("Rate limited. Retry after %.2f seconds\n", wait.Seconds())
+    // 3. Allow check
+    res, err := limiter.Allow(ctx, "user_123")
+    if err != nil {
+        panic(err)
+    }
+
+    if !res.Allowed {
+        fmt.Printf("Rate limited. Retry after %.2s\n", res.WaitTime)
         return
     }
 
-    fmt.Println("Request allowed!")
+    fmt.Printf("Allowed! Remaining: %d\n", res.Remaining)
 }
+```
+
+---
+
+## Framework Support (Plug & Play)
+
+Protect any route in your favorite framework with a single line:
+
+### [NEW] Gin Middleware
+```go
+limiter := leaky_bucket.New(redisClient, 10.0)
+r := gin.Default()
+r.Use(leaky_bucket.GinMiddleware(limiter, leaky_bucket.ExtractIP))
+```
+
+### [NEW] Echo Middleware
+```go
+limiter := leaky_bucket.New(redisClient, 10.0)
+e := echo.New()
+e.Use(leaky_bucket.EchoMiddleware(limiter, leaky_bucket.ExtractIP))
+```
+
+---
+
+## 🛠️ Advanced Customization
+
+### Custom Error Responses
+Customize what happens when a user is rate limited (e.g., return JSON or a custom HTML page).
+
+```go
+mw := leaky_bucket.Middleware(limiter, leaky_bucket.ExtractIP, 
+    leaky_bucket.WithErrorHandler(func(w http.ResponseWriter, r *http.Request, res *leaky_bucket.Result) {
+        w.WriteHeader(http.StatusTooManyRequests)
+        fmt.Fprintf(w, "Chill out! Wait until %v", res.ResetTime)
+    }),
+)
+```
+
+### Monitoring & Metrics
+Use the `WithOnLimit` hook to pipe data into Prometheus, Datadog, or your logs.
+
+```go
+mw := leaky_bucket.Middleware(limiter, leaky_bucket.ExtractIP,
+    leaky_bucket.WithOnLimit(func(r *http.Request, res *leaky_bucket.Result) {
+        metrics.Incr("rate_limit.exceeded", []string{"path:" + r.URL.Path})
+        log.Printf("Rate limit hit by %s", r.RemoteAddr)
+    }),
+)
+```
+
+### Flexible Key Extraction
+Extract keys from anywhere in the request:
+
+```go
+// By Header (e.g., API Key)
+mw := leaky_bucket.Middleware(limiter, leaky_bucket.ExtractHeader("X-API-Key"))
+
+// By Cookie
+mw := leaky_bucket.Middleware(limiter, leaky_bucket.ExtractCookie("session_id"))
+
+// Custom logic (e.g., Auth Token)
+mw := leaky_bucket.Middleware(limiter, func(r *http.Request) string {
+    return r.Context().Value("user_id").(string)
+})
 ```
 
 ---
 
 ## API Reference
 
-### `NewLeakyBucket(client *redis.Client, key string, rate float64) *LeakyBucketRedis`
+### `New(client redis.UniversalClient, rate float64, opts ...Option) *LeakyBucketRedis`
 
-Creates a new **Redis-based rate limiter** using the Leaky Bucket algorithm.
+Creates a new **Redis-based rate limiter**.
 
 | Parameter | Type | Description |
 |------------|------|-------------|
-| `client` | *redis.Client | Active Redis connection |
-| `key` | string | Unique key for rate limit scope (e.g. `"user:123"`) |
-| `rate` | float64 | Allowed requests per second |
+| `client` | `redis.UniversalClient` | Supports `*redis.Client`, `*redis.ClusterClient`, etc. |
+| `rate` | `float64` | Allowed requests per second |
+| `opts` | `...Option` | Configure `WithBurst(int)` |
 
-Returns: `*LeakyBucketRedis`
+### `Allow(ctx context.Context, key string) (*Result, error)`
 
----
+Checks if a request is allowed for a specific key.
 
-### `Allow(ctx context.Context) time.Duration`
+- Returns `*Result` with `Allowed`, `WaitTime`, `Remaining`, and `Limit`.
+- Fails open on Redis errors (returns `Allowed: true`).
 
-Checks if a request is allowed and returns the **wait time** before retrying.
+### `Wait(ctx context.Context, key string) error`
 
-- Returns `0` → request allowed  
-- Returns `>0` → number of seconds to wait before next attempt  
-
-Behavior:
-- Thread-safe  
-- Atomic Redis operations  
-- Fails open if Redis unavailable (never blocks)  
+Blocks until the request is allowed or the context is cancelled. Ideal for background workers.
 
 ---
 
@@ -131,15 +213,13 @@ limiter := leaky_bucket.NewLeakyBucket(client, "batch_limit", 2.0)
 
 ---
 
-## ⚙️ How the Leaky Bucket Algorithm Works
+## ⚙️ How it Works (GCRA Algorithm)
 
-The **Leaky Bucket algorithm** is a classic rate-limiting technique.  
-This Go implementation with Redis provides **distributed consistency** and **precise control**.
+This library implements the **Generic Cell Rate Algorithm (GCRA)**, which is a mathematically sound approach to the Leaky Bucket algorithm. It store a single `Theoretical Arrival Time` (TAT) in Redis, making it:
 
-1. Each incoming request adds a “token” to a Redis sorted set.  
-2. Tokens “leak” at a steady rate based on your configured limit.  
-3. When the bucket is full, new requests must wait until older tokens expire.  
-4. Wait time = exact time until a new token can be added.  
+1. **Memory Efficient:** Only 1 key per limit scope.
+2. **Highly Precise:** Handles floating-point rates and burst capacity with nanosecond precision.
+3. **Atomic:** Uses a single, high-performance Lua script.
 
 Smooths bursts into a steady flow  
 Works across multiple servers  
@@ -158,10 +238,11 @@ Atomic and thread-safe
 
 ## Testing
 
+Tests are hermetic and run using an in-memory Redis (`miniredis`), so **no external Redis server is required** to run them.
+
 ```bash
 go test ./leaky_bucket -v
 go test ./leaky_bucket -cover
-go test ./leaky_bucket -bench=.
 ```
 
 Tests cover:

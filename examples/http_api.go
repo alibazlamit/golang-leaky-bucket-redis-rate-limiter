@@ -4,7 +4,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"net/http"
@@ -21,37 +20,22 @@ func main() {
 	})
 	defer client.Close()
 
-	// Test Redis connection
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
+	// 1. Create rate limiter: 10 requests per second with burst of 5
+	limiter := leaky_bucket.New(client, 10.0, leaky_bucket.WithBurst(5))
 
-	if err := client.Ping(ctx).Err(); err != nil {
-		log.Fatalf("Failed to connect to Redis: %v", err)
-	}
+	// 2. Create middleware using client IP as key
+	mw := leaky_bucket.Middleware(limiter, leaky_bucket.ExtractIP)
 
-	// Create rate limiter: 10 requests per second
-	rateLimiter := leaky_bucket.NewLeakyBucket(client, "api_rate_limit", 10.0)
-
-	// HTTP handler with rate limiting
-	http.HandleFunc("/api/data", func(w http.ResponseWriter, r *http.Request) {
-		waitTime := rateLimiter.Allow(r.Context())
-
-		if waitTime > 0 {
-			// Rate limited - return 429
-			w.Header().Set("Retry-After", fmt.Sprintf("%.0f", waitTime.Seconds()))
-			w.WriteHeader(http.StatusTooManyRequests)
-			fmt.Fprintf(w, "Rate limit exceeded. Retry after %.2f seconds\n", waitTime.Seconds())
-			return
-		}
-
-		// Request allowed
+	// 3. Apply middleware to your handler
+	mux := http.NewServeMux()
+	mux.Handle("/api/data", mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprintf(w, "Request processed successfully at %v\n", time.Now().Format(time.RFC3339))
-	})
+	})))
 
 	fmt.Println("API server starting on :8080")
-	fmt.Println("Rate limit: 10 requests per second")
-	fmt.Println("Try: curl http://localhost:8080/api/data")
+	fmt.Println("Rate limit: 10 requests per second, Burst: 5")
+	fmt.Println("Try: curl -i http://localhost:8080/api/data")
 
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	log.Fatal(http.ListenAndServe(":8080", mux))
 }
