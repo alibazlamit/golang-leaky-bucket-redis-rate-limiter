@@ -37,11 +37,13 @@ While there are several rate limiters available for Go, this library specificall
 ## Installation
 
 ```bash
-go get github.com/alibazlamit/leaky_bucket_redis
+go get github.com/alibazlamit/leaky_bucket_redis@v0.1.0
 ```
 
+> **Note:** We highly recommend pulling a specific tagged release rather than `latest` to ensure you don't receive unexpected breaking changes.
+
 **Requirements:**
-- Go 1.21+
+- Go 1.22+
 - Redis 6.0+
 
 ---

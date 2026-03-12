@@ -258,3 +258,49 @@ func BenchmarkLeakyBucketRedis_Allow(b *testing.B) {
 		}
 	})
 }
+
+func TestOldAllow(t *testing.T) {
+	client := createTestClient(t)
+	defer client.Close()
+
+	lb := NewLeakyBucket(client.(*redis.Client), "test_old_allow", 10.0)
+
+	// Test the fallback oldAllow method explicitly
+	waitTime := lb.oldAllow(context.Background(), "test_old_allow")
+	if waitTime != 0 {
+		t.Errorf("Expected oldAllow to return 0 wait time for first request, got %v", waitTime)
+	}
+}
+
+
+func TestNewLeakyBucket(t *testing.T) {
+	client := createTestClient(t)
+	defer client.Close()
+
+	// Use old NewLeakyBucket signature
+	lb := NewLeakyBucket(client.(*redis.Client), "test_global_key", 10.0)
+
+	ctx := context.Background()
+
+	// Should still work identically to new ones
+	res, err := lb.Allow(ctx, "test_global_key")
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+	if !res.Allowed {
+		t.Errorf("Expected first request to be allowed")
+	}
+
+	// Wait method using the new signature
+	start := time.Now()
+	lb.Allow(ctx, "test_global_key") // consume token
+	err = lb.Wait(ctx, "test_global_key")
+	elapsed := time.Since(start)
+
+	if err != nil {
+		t.Fatalf("Wait failed: %v", err)
+	}
+	if elapsed < 50*time.Millisecond {
+		t.Errorf("Wait returned too early for test_global_key")
+	}
+}
