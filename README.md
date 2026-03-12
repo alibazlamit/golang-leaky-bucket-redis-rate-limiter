@@ -37,10 +37,14 @@ While there are several rate limiters available for Go, this library specificall
 ## Installation
 
 ```bash
-go get github.com/alibazlamit/leaky_bucket_redis@v0.1.0
+go get github.com/alibazlamit/leaky_bucket_redis/v2@latest
 ```
 
-> **Note:** We highly recommend pulling a specific tagged release rather than `latest` to ensure you don't receive unexpected breaking changes.
+> **Migration Note (v1 -> v2):** This module has been migrated to a `v2` module path to introduce significant algorithm improvements (GCRA) and framework adapters without breaking existing applications. 
+> 
+> - **New Users / Upgraders**: Please use the `github.com/alibazlamit/leaky_bucket_redis/v2` import path as shown above.
+> - **Legacy Users (v1)**: If you are experiencing breaking changes from fetching `latest` on the old module path, please pin your application to `v1.0.0` (the pre-refactor stable release):
+>   `go get github.com/alibazlamit/leaky_bucket_redis@v1.0.0`
 
 **Requirements:**
 - Go 1.22+
@@ -269,7 +273,13 @@ go run examples/http_api.go
 
 ---
 
-## 🤝 Contributing
+## 🤝 Contributing & Versioning
+
+To ensure stability and predictability for all users, this repository strictly adheres to **Semantic Versioning** and a **Pull Request-based workflow**:
+
+1. **No Direct Pushes to `main`**: All changes must be submitted via Pull Requests.
+2. **Conventional Commits**: Please format your PR titles and commit messages using the [Conventional Commits](https://www.conventionalcommits.org/) specification (e.g., `feat: add new adapter`, `fix: resolve race condition`).
+3. **Automated Releases**: Upon merging to `main`, a GitHub Action automatically calculates the next version (major, minor, or patch) based on your commit messages and automatically creates a new tagged Release.
 
 Pull requests and issues are highly welcome! We'd love to have your contributions.
 

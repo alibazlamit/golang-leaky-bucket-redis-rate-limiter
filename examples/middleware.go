@@ -5,7 +5,7 @@ import (
 	"log"
 	"net/http"
 
-	leaky_bucket "github.com/alibazlamit/leaky_bucket_redis/leaky_bucket"
+	leaky_bucket "github.com/alibazlamit/leaky_bucket_redis/v2/leaky_bucket"
 	"github.com/redis/go-redis/v9"
 )
 
