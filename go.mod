@@ -1,4 +1,4 @@
-module github.com/alibazlamit/leaky_bucket_redis
+module github.com/alibazlamit/leaky_bucket_redis/v2
 
 go 1.25.0
 

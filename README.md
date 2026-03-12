@@ -37,10 +37,10 @@ While there are several rate limiters available for Go, this library specificall
 ## Installation
 
 ```bash
-go get github.com/alibazlamit/leaky_bucket_redis@v0.1.0
+go get github.com/alibazlamit/leaky_bucket_redis/v2@latest
 ```
 
-> **Note:** We highly recommend pulling a specific tagged release rather than `latest` to ensure you don't receive unexpected breaking changes.
+> **Note:** We highly recommend pulling a specific tagged release rather than `latest` to ensure you don't receive unexpected breaking changes. This module migrated to `v2` to fix prior breaking changes. Users remaining on `/leaky_bucket_redis` will pull `v1.0.0` code.
 
 **Requirements:**
 - Go 1.22+
@@ -269,7 +269,13 @@ go run examples/http_api.go
 
 ---
 
-## 🤝 Contributing
+## 🤝 Contributing & Versioning
+
+To ensure stability and predictability for all users, this repository strictly adheres to **Semantic Versioning** and a **Pull Request-based workflow**:
+
+1. **No Direct Pushes to `main`**: All changes must be submitted via Pull Requests.
+2. **Conventional Commits**: Please format your PR titles and commit messages using the [Conventional Commits](https://www.conventionalcommits.org/) specification (e.g., `feat: add new adapter`, `fix: resolve race condition`).
+3. **Automated Releases**: Upon merging to `main`, a GitHub Action automatically calculates the next version (major, minor, or patch) based on your commit messages and automatically creates a new tagged Release.
 
 Pull requests and issues are highly welcome! We'd love to have your contributions.
 

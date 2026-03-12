@@ -2,20 +2,31 @@ name: Release
 
 on:
   push:
-    tags:
-      - 'v*.*.*'
+    branches:
+      - main
+      - v2
 
 jobs:
   release:
+    name: Semantic Release
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
+      issues: write
+      pull-requests: write
 
-      - name: Create Release
-        uses: softprops/action-gh-release@v2
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
         with:
-          generate_release_notes: true
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Semantic Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx semantic-release
