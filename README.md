@@ -34,13 +34,26 @@ While there are several rate limiters available for Go, this library specificall
 
 ---
 
+> 📢 **ANNOUNCEMENT: Version 2 is Here!** 📢
+> 
+> We have officially released **v2**! This release introduces significant algorithm improvements (fully replacing the legacy logic with the **Generic Cell Rate Algorithm (GCRA)**) and new plug-and-play middleware adapters for popular frameworks like **Gin** and **Echo**. 
+> 
+> To protect existing integrations from breaking, we have properly versioned the module. 
+> - **Legacy Users (v1)**: If you are experiencing breaking changes from fetching `latest` on the old module path, you can safely continue using v1 by pinning your application to the stable `v1.0.0` tag:
+>   `go get github.com/alibazlamit/leaky_bucket_redis@v1.0.0`
+> - **New Users & Upgraders (v2)**: Use the new `/v2` module path (see installation below) to enjoy all the new features.
+
+---
+
 ## Installation
 
 ```bash
+# For the latest V2 features (Recommended)
 go get github.com/alibazlamit/leaky_bucket_redis/v2@latest
-```
 
-> **Note:** We highly recommend pulling a specific tagged release rather than `latest` to ensure you don't receive unexpected breaking changes. This module migrated to `v2` to fix prior breaking changes. Users remaining on `/leaky_bucket_redis` will pull `v1.0.0` code.
+# For the legacy V1 stable release
+go get github.com/alibazlamit/leaky_bucket_redis@v1.0.0
+```
 
 **Requirements:**
 - Go 1.22+
