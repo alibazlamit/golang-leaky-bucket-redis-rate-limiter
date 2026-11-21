@@ -44,7 +44,7 @@ func mustNew(t *testing.T, client redis.Scripter, rate float64, opts ...Option) 
 
 func TestNewRejectsBadConfig(t *testing.T) {
 	_, client := setup(t)
-	for _, rate := range []float64{0, -5, math.NaN(), math.Inf(1)} {
+	for _, rate := range []float64{0, -5, math.NaN(), math.Inf(1), 1e7} {
 		if _, err := New(client, rate); !errors.Is(err, ErrInvalidRate) {
 			t.Errorf("rate %v: got %v, want ErrInvalidRate", rate, err)
 		}
@@ -262,7 +262,7 @@ func TestRealRedis(t *testing.T) {
 	defer client.Close()
 	ctx := context.Background()
 	key := "test:" + time.Now().Format(time.RFC3339Nano)
-	l := mustNew(t, client, 10, WithBurst(5))
+	l := mustNew(t, client, 7, WithBurst(5))
 
 	var allowed atomic.Int64
 	var wg sync.WaitGroup
@@ -281,7 +281,7 @@ func TestRealRedis(t *testing.T) {
 	}
 
 	res, err := l.Allow(ctx, key)
-	if err != nil || res.Allowed || res.RetryAfter <= 0 || res.RetryAfter > 100*time.Millisecond {
+	if err != nil || res.Allowed || res.RetryAfter <= 0 || res.RetryAfter > 143*time.Millisecond {
 		t.Fatalf("got %+v err=%v", res, err)
 	}
 	time.Sleep(res.RetryAfter)
@@ -398,5 +398,25 @@ func TestBadStoredStateHealsWithinOneWindow(t *testing.T) {
 	res, err := l.Allow(ctx, "k")
 	if err != nil || res.Allowed || res.RetryAfter != time.Second {
 		t.Fatalf("clock moved back a day: got %+v err=%v, want a 1s wait, not a day", res, err)
+	}
+}
+
+func TestBurstIsExactAtEveryRate(t *testing.T) {
+	_, client := frozen(t)
+	ctx := context.Background()
+
+	for _, rate := range []float64{0.3, 0.7, 1.0 / 3, 1, 6, 7, 10, 13, 999, 1e6} {
+		for _, burst := range []int{1, 3, 5, 100} {
+			l := mustNew(t, client, rate, WithBurst(burst))
+			for i := range burst {
+				res, err := l.Allow(ctx, "k")
+				if err != nil || !res.Allowed || res.Remaining != burst-1-i {
+					t.Fatalf("rate %v burst %d request %d: got %+v err=%v", rate, burst, i+1, res, err)
+				}
+			}
+			if res, _ := l.Allow(ctx, "k"); res.Allowed || res.RetryAfter <= 0 {
+				t.Fatalf("rate %v burst %d: request %d was not denied: %+v", rate, burst, burst+1, res)
+			}
+		}
 	}
 }

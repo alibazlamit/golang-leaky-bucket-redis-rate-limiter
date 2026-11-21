@@ -85,7 +85,7 @@ X-Ratelimit-Reset: 5
 | Two limiters reuse the same key with different settings | They never share state. Rate and burst are part of the Redis key. | `TestLimitersWithDifferentSettingsDoNotShareState` |
 | Client sends a 100 KB key to fill Redis memory | Keys over 64 bytes are stored as a hash. | `TestLongKeysAreHashed` |
 | Redis clock jumps after a failover, or a key holds garbage | The stored value is clamped to one window, so the worst case is a short wait, not a day-long lockout or a free pass. | `TestBadStoredStateHealsWithinOneWindow` |
-| 200 requests arrive at the same instant | Exactly the burst is allowed. Check and update are one atomic script. | `TestConcurrentCallersGetExactlyTheBurst` |
+| 200 requests arrive at the same instant | Exactly the burst is allowed. Check and update are one atomic script. | `TestConcurrentCallersGetExactlyTheBurst`, `TestBurstIsExactAtEveryRate` |
 
 Every row is a test you can run: `go test ./limiter -run <name> -v`.
 

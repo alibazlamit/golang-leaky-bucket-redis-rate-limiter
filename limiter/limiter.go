@@ -18,7 +18,7 @@ import (
 )
 
 var (
-	ErrInvalidRate   = errors.New("limiter: rate must be a finite number greater than 0")
+	ErrInvalidRate   = errors.New("limiter: rate must be greater than 0 and at most 1,000,000 per second")
 	ErrWindowTooLong = errors.New("limiter: burst divided by rate must be under 100 years")
 	ErrInvalidBurst  = errors.New("limiter: burst must be at least 1")
 	ErrInvalidCost   = errors.New("limiter: cost must be between 1 and the burst size")
@@ -57,7 +57,7 @@ if allow_at > now then
 	return {0, remaining, math.ceil(allow_at - now), math.ceil(tat - now)}
 end
 
-redis.call('SET', KEYS[1], string.format('%.3f', new_tat), 'PX', math.ceil((new_tat - now) / 1000))
+redis.call('SET', KEYS[1], string.format('%.0f', new_tat), 'PX', math.ceil((new_tat - now) / 1000))
 return {1, math.floor((now - allow_at) / interval), 0, math.ceil(new_tat - now)}
 `)
 
@@ -117,10 +117,17 @@ func New(client redis.Scripter, rate float64, opts ...Option) (*Limiter, error) 
 	if !(rate > 0) || math.IsInf(rate, 0) {
 		return nil, ErrInvalidRate
 	}
+	// A whole number of microseconds keeps every value in the script an exact
+	// integer. With a fractional interval, float rounding near the current
+	// Unix time costs the client the last request of its burst.
+	interval := math.Round(float64(time.Second/time.Microsecond) / rate)
+	if interval < 1 {
+		return nil, ErrInvalidRate
+	}
 	l := &Limiter{
 		client:   client,
 		rate:     rate,
-		interval: float64(time.Second/time.Microsecond) / rate,
+		interval: interval,
 		burst:    1,
 		prefix:   defaultPrefix,
 	}
