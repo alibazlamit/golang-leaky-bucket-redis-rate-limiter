@@ -226,10 +226,24 @@ This library adds the layer around the algorithm: HTTP middleware for
 net/http, Gin and Echo, client identification that cannot be spoofed by
 default, and an explicit choice for Redis outages.
 
-To compare speed on your own hardware:
+### Speed
+
+Both libraries make one Redis round trip per decision, so they cost the same.
+This is not a faster limiter. It is a safer one at the same price.
+
+| | Time per `Allow` | Memory | Allocations |
+|---|---|---|---|
+| This library | 29.6 µs | 576 B | 19 |
+| `redis_rate` v10 | 30.0 µs | 688 B | 23 |
+
+Mean of 6 runs, 4 parallel callers, Redis 7 on the same host, GitHub Actions
+`ubuntu-latest` (Intel Xeon Platinum 8573C). The 1% gap in time is inside
+run-to-run noise. The
+[benchmark job](https://github.com/alibazlamit/golang-leaky-bucket-redis-rate-limiter/actions/workflows/test.yml)
+reruns on every pull request, so these numbers can be checked. To run it yourself:
 
 ```bash
-cd benchmarks && REDIS_ADDR=localhost:6379 go test -bench . -benchtime 5s
+cd benchmarks && REDIS_ADDR=localhost:6379 go test -run '^$' -bench . -benchtime 3s -count 6
 ```
 
 ## Upgrading from v2
