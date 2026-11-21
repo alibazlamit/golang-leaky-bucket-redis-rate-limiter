@@ -80,7 +80,7 @@ X-Ratelimit-Reset: 5
 | Client rotates through its IPv6 `/64` (18 quintillion addresses) | IPv6 clients are limited per `/64`, not per address. | `TestClientIPGroupsIPv6By64` |
 | Request cannot be tied to a client (the key is empty) | Rejected with `400`. It is never waved through unlimited. | `TestMiddlewareRejectsRequestsWithoutAKey` |
 | Redis is down | Denied with `503` by default. `WithFailOpen()` allows instead. Both report the error. | `TestMiddlewareWhenRedisIsDown` |
-| Rate is `0` or negative | `New` returns `ErrInvalidRate` instead of building a limiter that allows everything. | `TestNewRejectsBadConfig` |
+| Rate is `0`, negative, or too high to apply accurately | `New` returns `ErrInvalidRate` instead of building a limiter that allows more than you asked for. | `TestNewRejectsBadConfig`, `TestAppliedRateMatchesConfiguredRate` |
 | App servers have different clocks | Irrelevant. The script uses Redis server time. | `TestUsesRedisClockNotLocalClock` |
 | Two limiters reuse the same key with different settings | They never share state. Rate and burst are part of the Redis key. | `TestLimitersWithDifferentSettingsDoNotShareState` |
 | Client sends a 100 KB key to fill Redis memory | Keys over 64 bytes are stored as a hash. | `TestLongKeysAreHashed` |
@@ -179,7 +179,10 @@ By verified user, with IP for anonymous traffic:
 ```go
 verifiedUser := func(r *http.Request) string {
 	id, _ := r.Context().Value(userIDKey).(string) // set by your auth middleware
-	return id
+	if id == "" {
+		return ""
+	}
+	return "user:" + id // the prefix keeps user IDs apart from "ip:" keys
 }
 key := limiter.FirstOf(verifiedUser, limiter.ClientIP())
 ```

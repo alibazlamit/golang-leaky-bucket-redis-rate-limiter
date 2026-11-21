@@ -24,6 +24,8 @@ type KeyFunc func(r *http.Request) string
 // X-Forwarded-For read, and only for requests that arrive from them.
 //
 // IPv6 addresses are grouped by /64, since one user normally owns a whole /64.
+// Keys start with "ip:" so they cannot collide with a user ID that happens to
+// look like an address. Prefix your own keys the same way, for example "user:".
 func ClientIP(trustedProxies ...netip.Prefix) KeyFunc {
 	trusted := func(addr netip.Addr) bool {
 		for _, p := range trustedProxies {
@@ -87,8 +89,8 @@ func parseAddr(s string) (netip.Addr, bool) {
 func ipKey(addr netip.Addr) string {
 	if addr.Is6() {
 		if p, err := addr.Prefix(64); err == nil {
-			return p.String()
+			return "ip:" + p.String()
 		}
 	}
-	return addr.String()
+	return "ip:" + addr.String()
 }

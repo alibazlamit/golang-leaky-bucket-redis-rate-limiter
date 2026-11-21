@@ -44,7 +44,7 @@ func mustNew(t *testing.T, client redis.Scripter, rate float64, opts ...Option) 
 
 func TestNewRejectsBadConfig(t *testing.T) {
 	_, client := setup(t)
-	for _, rate := range []float64{0, -5, math.NaN(), math.Inf(1), 1e7} {
+	for _, rate := range []float64{0, -5, math.NaN(), math.Inf(1), 1e7, 700_000, 650_000} {
 		if _, err := New(client, rate); !errors.Is(err, ErrInvalidRate) {
 			t.Errorf("rate %v: got %v, want ErrInvalidRate", rate, err)
 		}
@@ -405,7 +405,7 @@ func TestBurstIsExactAtEveryRate(t *testing.T) {
 	_, client := frozen(t)
 	ctx := context.Background()
 
-	for _, rate := range []float64{0.3, 0.7, 1.0 / 3, 1, 6, 7, 10, 13, 999, 1e6} {
+	for _, rate := range []float64{0.3, 0.7, 1.0 / 3, 1, 6, 7, 10, 13, 999, 20_000, 500_000, 1e6} {
 		for _, burst := range []int{1, 3, 5, 100} {
 			l := mustNew(t, client, rate, WithBurst(burst))
 			for i := range burst {
@@ -419,4 +419,38 @@ func TestBurstIsExactAtEveryRate(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestAppliedRateMatchesConfiguredRate(t *testing.T) {
+	srv, client := frozen(t)
+	ctx := context.Background()
+
+	for _, rate := range []float64{0.7, 7, 333, 19_999, 20_000, 500_000} {
+		l := mustNew(t, client, rate)
+		now := epoch
+		srv.SetTime(now)
+
+		const requests = 300
+		for range requests {
+			res, err := l.Allow(ctx, "k")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if res.Allowed {
+				continue
+			}
+			now = now.Add(res.RetryAfter)
+			srv.SetTime(now)
+			if res, _ := l.Allow(ctx, "k"); !res.Allowed {
+				t.Fatalf("rate %v: still denied after waiting RetryAfter: %+v", rate, res)
+			}
+		}
+
+		got := now.Sub(epoch).Seconds()
+		want := (requests - 1) / rate
+		if math.Abs(got-want) > want/100 {
+			t.Errorf("rate %v: %d requests took %.6fs, want %.6fs", rate, requests, got, want)
+		}
+	}
+	srv.SetTime(epoch)
 }

@@ -103,8 +103,8 @@ func ExampleClientIP() {
 	fmt.Println(direct(r))
 	fmt.Println(behindProxy(r))
 	// Output:
-	// 10.0.0.1
-	// 198.51.100.4
+	// ip:10.0.0.1
+	// ip:198.51.100.4
 }
 
 func ExampleFirstOf() {
@@ -124,6 +124,6 @@ func ExampleFirstOf() {
 	fmt.Println(key(anonymous))
 	fmt.Println(key(signedIn))
 	// Output:
-	// 203.0.113.7
+	// ip:203.0.113.7
 	// user:42
 }

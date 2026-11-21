@@ -103,8 +103,12 @@ func TestClientIP(t *testing.T) {
 			for _, v := range tt.xff {
 				r.Header.Add("X-Forwarded-For", v)
 			}
-			if got := ClientIP(tt.trusted...)(r); got != tt.want {
-				t.Fatalf("got %q, want %q", got, tt.want)
+			want := tt.want
+			if want != "" {
+				want = "ip:" + want
+			}
+			if got := ClientIP(tt.trusted...)(r); got != want {
+				t.Fatalf("got %q, want %q", got, want)
 			}
 		})
 	}
@@ -115,7 +119,7 @@ func TestFirstOf(t *testing.T) {
 
 	anonymous := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
 	anonymous.RemoteAddr = "203.0.113.7:1"
-	if got := key(anonymous); got != "203.0.113.7" {
+	if got := key(anonymous); got != "ip:203.0.113.7" {
 		t.Fatalf("anonymous: got %q", got)
 	}
 

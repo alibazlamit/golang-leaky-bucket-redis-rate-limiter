@@ -18,7 +18,7 @@ import (
 )
 
 var (
-	ErrInvalidRate   = errors.New("limiter: rate must be greater than 0 and at most 1,000,000 per second")
+	ErrInvalidRate   = errors.New("limiter: rate must be greater than 0 and, above 20,000 per second, divide 1,000,000 to within 1%")
 	ErrWindowTooLong = errors.New("limiter: burst divided by rate must be under 100 years")
 	ErrInvalidBurst  = errors.New("limiter: burst must be at least 1")
 	ErrInvalidCost   = errors.New("limiter: cost must be between 1 and the burst size")
@@ -110,6 +110,8 @@ func WithFailOpen() Option {
 }
 
 // New returns a limiter that permits rate requests per second per key.
+// Requests are spaced a whole number of microseconds apart, so the applied
+// rate is within 1% of rate, and exact for any rate that divides 1,000,000.
 func New(client redis.Scripter, rate float64, opts ...Option) (*Limiter, error) {
 	if client == nil {
 		return nil, ErrNilClient
@@ -120,8 +122,11 @@ func New(client redis.Scripter, rate float64, opts ...Option) (*Limiter, error) 
 	// A whole number of microseconds keeps every value in the script an exact
 	// integer. With a fractional interval, float rounding near the current
 	// Unix time costs the client the last request of its burst.
-	interval := math.Round(float64(time.Second/time.Microsecond) / rate)
-	if interval < 1 {
+	// Rounding must not change the rate that was asked for by more than 1%,
+	// which only becomes possible above 20,000 per second.
+	exact := float64(time.Second/time.Microsecond) / rate
+	interval := math.Round(exact)
+	if interval < 1 || math.Abs(interval-exact) > exact/100 {
 		return nil, ErrInvalidRate
 	}
 	l := &Limiter{
