@@ -57,6 +57,21 @@ jobs:
         go build ./examples/...
         cd benchmarks && go vet ./...
 
+    - name: Every example limits against real Redis
+      run: |
+        for example in nethttp gin echo; do
+          redis-cli -h localhost flushall >/dev/null 2>&1 || docker exec "$(docker ps -q --filter ancestor=redis:7)" redis-cli flushall >/dev/null
+          GIN_MODE=release go run ./examples/$example &
+          for i in $(seq 60); do curl -s -o /dev/null localhost:8080 && break; sleep 1; done
+          docker exec "$(docker ps -q --filter ancestor=redis:7)" redis-cli flushall >/dev/null
+          codes=$(for i in 1 2 3 4 5 6 7; do curl -s -o /dev/null -w '%{http_code} ' localhost:8080; done)
+          echo "$example: $codes"
+          test "$codes" = "200 200 200 200 200 429 429 "
+          pkill -f "/$example" || true
+          for i in $(seq 20); do curl -s -o /dev/null localhost:8080 || break; sleep 0.5; done
+        done
+        go run ./examples/worker
+
   lint:
     runs-on: ubuntu-latest
     steps:
