@@ -2,31 +2,21 @@ name: Release
 
 on:
   push:
-    branches:
-      - main
-      - v2
+    tags: [ 'v*' ]
+
+permissions:
+  contents: write
 
 jobs:
   release:
-    name: Semantic Release
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      issues: write
-      pull-requests: write
-
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-
-      - name: Semantic Release
+      - name: Publish GitHub release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx semantic-release
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          case "$GITHUB_REF_NAME" in
+            *-*) gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes --prerelease ;;
+            *)   gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes ;;
+          esac
