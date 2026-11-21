@@ -6,9 +6,16 @@ on:
   pull_request:
     branches: [ main ]
 
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        go: [ stable, oldstable ]
 
     services:
       redis:
@@ -22,18 +29,68 @@ jobs:
           --health-retries 5
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-    - name: Set up Go
-      uses: actions/setup-go@v5
+    - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
       with:
-        go-version: '1.25.0'
-        cache: true
+        go-version: ${{ matrix.go }}
 
-    - name: Install dependencies
-      run: go mod download
+    - name: Format
+      run: test -z "$(gofmt -l .)"
 
-    - name: Run Tests
+    - name: Vet
+      run: go vet ./...
+
+    - name: Test against real Redis
       env:
-        GOTOOLCHAIN: local
-      run: go test -v -race -cover ./...
+        REDIS_ADDR: localhost:6379
+      run: |
+        go test -race -count=1 -v -run 'TestRealRedis' ./limiter
+        go test -race -coverprofile=cover.out ./limiter ./ginlimiter ./echolimiter
+
+    - name: Coverage must stay at 95% or more
+      run: |
+        go tool cover -func=cover.out | awk '/^total:/ { sub("%", "", $3); print "coverage: " $3 "%"; if ($3 + 0 < 95) exit 1 }'
+
+    - name: Examples and benchmarks build
+      run: |
+        go build ./examples/...
+        cd benchmarks && go vet ./...
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+    - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+      with:
+        go-version: stable
+
+    - uses: golangci/golangci-lint-action@4afd733a84b1f43292c63897423277bb7f4313a9 # v8
+      with:
+        version: v2.12.2
+
+  benchmark:
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+    - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+    - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+      with:
+        go-version: stable
+
+    - name: Benchmark against go-redis/redis_rate
+      working-directory: benchmarks
+      env:
+        REDIS_ADDR: localhost:6379
+      run: go test -run '^$' -bench . -benchtime 3s -count 6

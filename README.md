@@ -1,299 +1,269 @@
-# Go Leaky Bucket Rate Limiter with Redis
+# Leaky bucket rate limiter for Go and Redis
 
-[![Run Tests](https://github.com/alibazlamit/leaky_bucket_redis/actions/workflows/test.yml/badge.svg)](https://github.com/alibazlamit/leaky_bucket_redis/actions/workflows/test.yml)
-[![Go Report Card](https://goreportcard.com/badge/github.com/alibazlamit/leaky_bucket_redis)](https://goreportcard.com/report/github.com/alibazlamit/leaky_bucket_redis)
-[![Go Reference](https://pkg.go.dev/badge/github.com/alibazlamit/leaky_bucket_redis.svg)](https://pkg.go.dev/github.com/alibazlamit/leaky_bucket_redis)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Tests](https://github.com/alibazlamit/golang-leaky-bucket-redis-rate-limiter/actions/workflows/test.yml/badge.svg)](https://github.com/alibazlamit/golang-leaky-bucket-redis-rate-limiter/actions/workflows/test.yml)
+[![Coverage](https://img.shields.io/badge/coverage-%E2%89%A595%25%20enforced%20in%20CI-brightgreen)](.github/workflows/test.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/alibazlamit/leaky_bucket_redis/v3/limiter.svg)](https://pkg.go.dev/github.com/alibazlamit/leaky_bucket_redis/v3/limiter)
+[![Go Report Card](https://goreportcard.com/badge/github.com/alibazlamit/leaky_bucket_redis/v3)](https://goreportcard.com/report/github.com/alibazlamit/leaky_bucket_redis/v3)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-A high-performance **distributed rate limiter in Go** built using the **Leaky Bucket algorithm** and **Redis** as the backend.  
-Ideal for APIs, microservices, and distributed systems that need **accurate request throttling** across multiple instances.
+**The Redis rate limiter for Go that is hard to bypass by accident.**
 
-⭐ **If you find this library useful, please consider giving it a star! It helps others discover this project.** ⭐
+Most rate limiters get the algorithm right and leave the dangerous part to
+you: which client is this, and what happens when Redis is down? This one
+ships safe answers to both, on top of an atomic GCRA (leaky bucket) script.
 
----
-
-## Why Use This Library?
-
-While there are several rate limiters available for Go, this library specifically implements a strict **Leaky Bucket** algorithm via highly optimized atomic Lua scripts in Redis. This provides:
-
-- **Exact Smooth Throttling:** Token buckets allow bursts; leaky buckets strictly smooth out requests to a constant, predictable rate.
-- **Zero-Dependency Core:** Only depends on the official `go-redis` client, keeping your modules clean.
-- **Sub-Second Precision:** Millisecond/nanosecond resolution ensures perfect timing between cross-server requests.
-- **Fail-Open Fallback:** Designed so that if your Redis node suddenly becomes unreachable, it won't indefinitely block or take down your API.
-
----
-
-## Features
-
-- **Redis-Backed Distributed Limiting** – works across multiple Go servers
-- **Precise Timing** – sub-second accuracy via nanosecond timestamps  
-- **Atomic Lua Scripts** – ensures consistent rate control in Redis  
-- **Context-Aware** – supports `context.Context` for cancellation & timeouts  
-- **Production-Ready** – robust error handling and full test coverage  
-- **Lightweight** – no dependencies beyond Go and Redis  
-
----
-
-> 📢 **ANNOUNCEMENT: Version 2 is Here!** 📢
-> 
-> We have officially released **v2**! This release introduces significant algorithm improvements (fully replacing the legacy logic with the **Generic Cell Rate Algorithm (GCRA)**) and new plug-and-play middleware adapters for popular frameworks like **Gin** and **Echo**. 
-> 
-> To protect existing integrations from breaking, we have properly versioned the module. 
-> - **Legacy Users (v1)**: If you are experiencing breaking changes from fetching `latest` on the old module path, you can safely continue using v1 by pinning your application to the stable `v1.0.0` tag:
->   `go get github.com/alibazlamit/leaky_bucket_redis@v1.0.0`
-> - **New Users & Upgraders (v2)**: Use the new `/v2` module path (see installation below) to enjoy all the new features.
-
----
-
-## Installation
+## Try it in two minutes
 
 ```bash
-# For the latest V2 features (Recommended)
-go get github.com/alibazlamit/leaky_bucket_redis/v2@latest
-
-# For the legacy V1 stable release
-go get github.com/alibazlamit/leaky_bucket_redis@v1.0.0
+docker run -d --rm --name redis -p 6379:6379 redis:7
+mkdir demo && cd demo && go mod init demo
+go get github.com/alibazlamit/leaky_bucket_redis/v3
 ```
 
-**Requirements:**
-- Go 1.22+
-- Redis 6.0+
-
----
-
-## How it Works: GCRA Algorithm
-
-This library uses the **Generic Cell Rate Algorithm (GCRA)**, which is the industry standard for sophisticated rate limiting. It's more efficient than "fixed window" or "sliding log" algorithms because it requires only a single Redis key and provides nanosecond precision.
-
-```mermaid
-graph TD
-    A[Request Arrives] --> B{Calculate TAT}
-    B --> C["New TAT = max(Now, Old TAT) + Emission Interval"]
-    C --> D{New TAT > Now + Burst?}
-    D -- Yes --> E[DENIED: Wait until TAT - Burst]
-    D -- No --> F[ALLOWED: Update TAT in Redis]
-```
-
----
-
-## Quick Start
-Example (Plug & Play)
+`main.go`:
 
 ```go
 package main
 
 import (
-    "context"
-    "fmt"
-    "time"
+	"log"
+	"net/http"
+	"time"
 
-    leaky_bucket "github.com/alibazlamit/leaky_bucket_redis/leaky_bucket"
-    "github.com/redis/go-redis/v9"
+	"github.com/alibazlamit/leaky_bucket_redis/v3/limiter"
+	"github.com/redis/go-redis/v9"
 )
 
 func main() {
-    // 1. Initialize Redis (UniversalClient supported)
-    client := redis.NewClient(&redis.Options{Addr: "localhost:6379"})
-    defer client.Close()
+	client := redis.NewClient(&redis.Options{Addr: "localhost:6379"})
 
-    // 2. Create Limiter: 10 req/sec with burst of 5
-    limiter := leaky_bucket.New(client, 10.0, leaky_bucket.WithBurst(5))
-    ctx := context.Background()
+	// 1 request per second per client IP, with bursts of 5.
+	l, err := limiter.New(client, 1, limiter.WithBurst(5))
+	if err != nil {
+		log.Fatal(err)
+	}
 
-    // 3. Allow check
-    res, err := limiter.Allow(ctx, "user_123")
-    if err != nil {
-        panic(err)
-    }
+	hello := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("hello\n"))
+	})
 
-    if !res.Allowed {
-        fmt.Printf("Rate limited. Retry after %.2s\n", res.WaitTime)
-        return
-    }
-
-    fmt.Printf("Allowed! Remaining: %d\n", res.Remaining)
+	srv := &http.Server{
+		Addr:              ":8080",
+		Handler:           limiter.Middleware(l, limiter.ClientIP())(hello),
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+	log.Fatal(srv.ListenAndServe())
 }
 ```
 
----
-
-## Framework Support (Plug & Play)
-
-Protect any route in your favorite framework with a single line:
-
-### [NEW] Gin Middleware
-```go
-limiter := leaky_bucket.New(redisClient, 10.0)
-r := gin.Default()
-r.Use(leaky_bucket.GinMiddleware(limiter, leaky_bucket.ExtractIP))
+```bash
+go run . &
+for i in 1 2 3 4 5 6 7; do curl -s -o /dev/null -w '%{http_code} ' localhost:8080; done
+# 200 200 200 200 200 429 429
 ```
 
-### [NEW] Echo Middleware
-```go
-limiter := leaky_bucket.New(redisClient, 10.0)
-e := echo.New()
-e.Use(leaky_bucket.EchoMiddleware(limiter, leaky_bucket.ExtractIP))
+The sixth response looks like this:
+
+```
+HTTP/1.1 429 Too Many Requests
+Retry-After: 1
+X-Ratelimit-Limit: 5
+X-Ratelimit-Remaining: 0
+X-Ratelimit-Reset: 5
 ```
 
----
+## What "hard to bypass" means
 
-## 🛠️ Advanced Customization
+| Attack or failure | What this library does | Test |
+|---|---|---|
+| Client sends a fake `X-Forwarded-For` on every request | Ignored. The header is only read when the request comes from a proxy range you listed. | `TestClientIPIgnoresForwardedHeaderByDefault` |
+| Client rotates through its IPv6 `/64` (18 quintillion addresses) | IPv6 clients are limited per `/64`, not per address. | `TestClientIPGroupsIPv6By64` |
+| Request cannot be tied to a client (the key is empty) | Rejected with `400`. It is never waved through unlimited. | `TestMiddlewareRejectsRequestsWithoutAKey` |
+| Redis is down | Denied with `503` by default. `WithFailOpen()` allows instead. Both report the error. | `TestMiddlewareWhenRedisIsDown` |
+| Rate is `0` or negative | `New` returns `ErrInvalidRate` instead of building a limiter that allows everything. | `TestNewRejectsBadConfig` |
+| App servers have different clocks | Irrelevant. The script uses Redis server time. | `TestUsesRedisClockNotLocalClock` |
+| Two limiters reuse the same key with different settings | They never share state. Rate and burst are part of the Redis key. | `TestLimitersWithDifferentSettingsDoNotShareState` |
+| Client sends a 100 KB key to fill Redis memory | Keys over 64 bytes are stored as a hash. | `TestLongKeysAreHashed` |
+| Redis clock jumps after a failover, or a key holds garbage | The stored value is clamped to one window, so the worst case is a short wait, not a day-long lockout or a free pass. | `TestBadStoredStateHealsWithinOneWindow` |
+| 200 requests arrive at the same instant | Exactly the burst is allowed. Check and update are one atomic script. | `TestConcurrentCallersGetExactlyTheBurst` |
 
-### Custom Error Responses
-Customize what happens when a user is rate limited (e.g., return JSON or a custom HTML page).
+Every row is a test you can run: `go test ./limiter -run <name> -v`.
 
-```go
-mw := leaky_bucket.Middleware(limiter, leaky_bucket.ExtractIP, 
-    leaky_bucket.WithErrorHandler(func(w http.ResponseWriter, r *http.Request, res *leaky_bucket.Result) {
-        w.WriteHeader(http.StatusTooManyRequests)
-        fmt.Fprintf(w, "Chill out! Wait until %v", res.ResetTime)
-    }),
-)
-```
-
-### Monitoring & Metrics
-Use the `WithOnLimit` hook to pipe data into Prometheus, Datadog, or your logs.
-
-```go
-mw := leaky_bucket.Middleware(limiter, leaky_bucket.ExtractIP,
-    leaky_bucket.WithOnLimit(func(r *http.Request, res *leaky_bucket.Result) {
-        metrics.Incr("rate_limit.exceeded", []string{"path:" + r.URL.Path})
-        log.Printf("Rate limit hit by %s", r.RemoteAddr)
-    }),
-)
-```
-
-### Flexible Key Extraction
-Extract keys from anywhere in the request:
-
-```go
-// By Header (e.g., API Key)
-mw := leaky_bucket.Middleware(limiter, leaky_bucket.ExtractHeader("X-API-Key"))
-
-// By Cookie
-mw := leaky_bucket.Middleware(limiter, leaky_bucket.ExtractCookie("session_id"))
-
-// Custom logic (e.g., Auth Token)
-mw := leaky_bucket.Middleware(limiter, func(r *http.Request) string {
-    return r.Context().Value("user_id").(string)
-})
-```
-
----
-
-## API Reference
-
-### `New(client redis.UniversalClient, rate float64, opts ...Option) *LeakyBucketRedis`
-
-Creates a new **Redis-based rate limiter**.
-
-| Parameter | Type | Description |
-|------------|------|-------------|
-| `client` | `redis.UniversalClient` | Supports `*redis.Client`, `*redis.ClusterClient`, etc. |
-| `rate` | `float64` | Allowed requests per second |
-| `opts` | `...Option` | Configure `WithBurst(int)` |
-
-### `Allow(ctx context.Context, key string) (*Result, error)`
-
-Checks if a request is allowed for a specific key.
-
-- Returns `*Result` with `Allowed`, `WaitTime`, `Remaining`, and `Limit`.
-- Fails open on Redis errors (returns `Allowed: true`).
-
-### `Wait(ctx context.Context, key string) error`
-
-Blocks until the request is allowed or the context is cancelled. Ideal for background workers.
-
----
-
-## Use Cases
-
-### 1. HTTP API Rate Limiting
-
-```go
-limiter := leaky_bucket.NewLeakyBucket(client, "api_global", 10.0)
-wait := limiter.Allow(r.Context())
-```
-
-### 2. Per-User Request Throttling
-```go
-key := fmt.Sprintf("user_limit:%s", userID)
-limiter := leaky_bucket.NewLeakyBucket(client, key, 5.0)
-```
-
-### 3. Background Jobs / Batch Tasks
-```go
-limiter := leaky_bucket.NewLeakyBucket(client, "batch_limit", 2.0)
-```
-
----
-
-## ⚙️ How it Works (GCRA Algorithm)
-
-This library implements the **Generic Cell Rate Algorithm (GCRA)**, which is a mathematically sound approach to the Leaky Bucket algorithm. It store a single `Theoretical Arrival Time` (TAT) in Redis, making it:
-
-1. **Memory Efficient:** Only 1 key per limit scope.
-2. **Highly Precise:** Handles floating-point rates and burst capacity with nanosecond precision.
-3. **Atomic:** Uses a single, high-performance Lua script.
-
-Smooths bursts into a steady flow  
-Works across multiple servers  
-Atomic and thread-safe  
-
----
-
-## Performance
-
-| Benchmark | Ops/sec | Avg Time |
-|------------|----------|-----------|
-| `Allow` | 10,000 | ~150 µs/op |
-| `Concurrent` | 5,000 | ~300 µs/op |
-
----
-
-## Testing
-
-Tests are hermetic and run using an in-memory Redis (`miniredis`), so **no external Redis server is required** to run them.
+## Install
 
 ```bash
-go test ./leaky_bucket -v
-go test ./leaky_bucket -cover
+go get github.com/alibazlamit/leaky_bucket_redis/v3
 ```
 
-Tests cover:
-- Allow/Deny behavior  
-- Redis failure tolerance  
-- Context cancellation  
-- Concurrency safety  
+Requires Go 1.25+ and Redis 5+ (or a compatible server). Works with
+`*redis.Client`, `*redis.ClusterClient` and `*redis.Ring`.
 
----
+The core package depends only on `go-redis`. Gin and Echo are compiled into
+your binary only if you import their adapter package.
 
-## Examples
+## Usage
 
-In `examples/` directory:
-- `http_api.go` → API rate limiting  
-- `per_user_limiting.go` → user-based limits  
-- `batch_processing.go` → throttled batch jobs  
+### Direct
 
-Run an example:
+```go
+l, err := limiter.New(client, 10, limiter.WithBurst(20)) // 10 per second, bursts of 20
+if err != nil {
+	log.Fatal(err)
+}
+
+res, err := l.Allow(ctx, "user:42")
+if err != nil {
+	log.Printf("rate limiter: %v", err) // Redis problem. res.Allowed holds your fail policy.
+}
+if !res.Allowed {
+	fmt.Printf("slow down, retry in %v\n", res.RetryAfter)
+	return
+}
+fmt.Printf("%d of %d left\n", res.Remaining, res.Limit)
+```
+
+### net/http, Gin, Echo
+
+```go
+http.ListenAndServe(":8080", limiter.Middleware(l, limiter.ClientIP())(mux))
+
+r.Use(ginlimiter.Middleware(l, limiter.ClientIP()))   // .../v3/ginlimiter
+
+e.Use(echolimiter.Middleware(l, limiter.ClientIP()))  // .../v3/echolimiter
+```
+
+All three set `X-RateLimit-Limit`, `X-RateLimit-Remaining` and
+`X-RateLimit-Reset`, and add `Retry-After` in whole seconds when they limit.
+All three accept `WithDenyHandler` to replace the response and `WithOnError`
+to log Redis errors.
+
+### Batch endpoints
+
+If one request can carry 500 items, a per-request limit is not a limit.
+Charge per item:
+
+```go
+res, err := l.AllowN(ctx, "user:42", len(items))
+```
+
+### Background workers
+
+```go
+for _, job := range jobs {
+	if err := l.Wait(ctx, "email-provider"); err != nil {
+		return err
+	}
+	send(job)
+}
+```
+
+## Choosing the key
+
+The key decides who shares a bucket. Use something the client cannot choose.
+
+| Key | Use it when |
+|---|---|
+| `ClientIP()` | Clients connect to your server directly. |
+| `ClientIP(prefixes...)` | You sit behind a load balancer or CDN. Pass its address ranges. |
+| Your own `func(*http.Request) string` | You have an identity that your auth already verified, such as a user or tenant ID. |
+| `FirstOf(a, b)` | Signed-in users get their own bucket, everyone else is limited by IP. |
+
+Behind a proxy:
+
+```go
+key := limiter.ClientIP(netip.MustParsePrefix("10.0.0.0/8"))
+```
+
+By verified user, with IP for anonymous traffic:
+
+```go
+verifiedUser := func(r *http.Request) string {
+	id, _ := r.Context().Value(userIDKey).(string) // set by your auth middleware
+	return id
+}
+key := limiter.FirstOf(verifiedUser, limiter.ClientIP())
+```
+
+### Why there is no `Header("X-API-Key")` helper
+
+v2 had one. It is a bypass. A client that sends a new random key on every
+request gets a new bucket on every request, so it is never limited. The same
+is true for cookies. Run the limiter after authentication and key by the
+identity it resolved, or key by IP.
+
+## When Redis is down
+
+You have to pick one, and the right answer depends on what you protect.
+
+| | Default (fail closed) | `WithFailOpen()` |
+|---|---|---|
+| Requests during an outage | Denied with `503` | Allowed |
+| Good for | Login, signup, payments, anything expensive | Read traffic where availability beats protection |
+| Error visible to you | Yes, from `Allow` and `WithOnError` | Yes, from `Allow` and `WithOnError` |
+
+How long a request waits on a slow Redis is set by the `ReadTimeout` of your
+`go-redis` client and by the request context.
+
+## How it works
+
+GCRA stores one number per client: the time at which their bucket will be
+empty again. A request is allowed if adding its cost would not push that time
+more than one burst into the future. That gives the same behavior as a leaky
+bucket with one Redis key, one round trip, and no background job to refill
+anything. Keys expire on their own once the bucket has drained.
+
+The check and the update run inside one Lua script, so two app servers can
+never both take the last slot. The script is sent once and then called by its
+hash.
+
+## How it compares
+
+[`go-redis/redis_rate`](https://github.com/go-redis/redis_rate) is the
+well-known GCRA limiter for Go and it is a good library. It gives you the
+algorithm. If that is all you need, use it.
+
+This library adds the layer around the algorithm: HTTP middleware for
+net/http, Gin and Echo, client identification that cannot be spoofed by
+default, and an explicit choice for Redis outages.
+
+To compare speed on your own hardware:
+
 ```bash
-go run examples/http_api.go
+cd benchmarks && REDIS_ADDR=localhost:6379 go test -bench . -benchtime 5s
 ```
 
----
+## Upgrading from v2
 
-## 🤝 Contributing & Versioning
+v3 is a breaking release. [CHANGELOG.md](CHANGELOG.md) has the full list.
 
-To ensure stability and predictability for all users, this repository strictly adheres to **Semantic Versioning** and a **Pull Request-based workflow**:
+| v2 | v3 |
+|---|---|
+| `import ".../v2/leaky_bucket"` | `import ".../v3/limiter"` |
+| `New(client, rate)` returns `*LeakyBucketRedis` | `New(client, rate)` returns `(*Limiter, error)` |
+| `Allow` returns `(*Result, error)`, error always nil on Redis failure | `Allow` returns `(Result, error)`, error is real |
+| Fails open, silently | Fails closed. `WithFailOpen()` to opt in. |
+| `Result.WaitTime` | `Result.RetryAfter` |
+| `Result.Limit` is the rate | `Result.Limit` is the burst size |
+| `ExtractIP` (trusted `X-Forwarded-For` from anyone) | `ClientIP()` / `ClientIP(trustedProxies...)` |
+| `ExtractHeader`, `ExtractCookie` | Removed. See "Choosing the key". |
+| `GinMiddleware`, `EchoMiddleware` | `ginlimiter.Middleware`, `echolimiter.Middleware` |
+| `WithErrorHandler`, `WithOnLimit` | `WithDenyHandler`, `WithOnError` |
+| `WaitTimeout(ctx, key, d)` | `Wait` with `context.WithTimeout` |
+| Redis keys are the raw key | `ratelimit:<rate>/<burst>:k:<key>` (prefix set by `WithKeyPrefix`) |
 
-1. **No Direct Pushes to `main`**: All changes must be submitted via Pull Requests.
-2. **Conventional Commits**: Please format your PR titles and commit messages using the [Conventional Commits](https://www.conventionalcommits.org/) specification (e.g., `feat: add new adapter`, `fix: resolve race condition`).
-3. **Automated Releases**: Upon merging to `main`, a GitHub Action automatically calculates the next version (major, minor, or patch) based on your commit messages and automatically creates a new tagged Release.
+## Development
 
-Pull requests and issues are highly welcome! We'd love to have your contributions.
+```bash
+go test -race ./...                              # in-memory Redis, nothing to install
+REDIS_ADDR=localhost:6379 go test -race ./...    # also runs the real Redis test
+golangci-lint run
+```
 
----
+Runnable programs live in [`examples/`](examples): `nethttp`, `gin`, `echo` and `worker`.
 
-## 📄 License
+Commits follow [Conventional Commits](https://www.conventionalcommits.org/).
+Pushing a `v*` tag publishes the GitHub release.
 
-MIT License – see LICENSE for details
+## License
+
+MIT. See [LICENSE](LICENSE).

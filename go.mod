@@ -1,4 +1,4 @@
-module github.com/alibazlamit/leaky_bucket_redis/v2
+module github.com/alibazlamit/leaky_bucket_redis/v3
 
 go 1.25.0
 
@@ -6,7 +6,7 @@ require (
 	github.com/alicebob/miniredis/v2 v2.37.0
 	github.com/gin-gonic/gin v1.12.0
 	github.com/labstack/echo/v4 v4.15.1
-	github.com/redis/go-redis/v9 v9.4.0
+	github.com/redis/go-redis/v9 v9.7.3
 )
 
 require (
