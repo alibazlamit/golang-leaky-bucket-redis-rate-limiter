@@ -95,7 +95,7 @@ Every row is a test you can run: `go test ./limiter -run <name> -v`.
 go get github.com/alibazlamit/leaky_bucket_redis/v3
 ```
 
-Requires Go 1.25+ and Redis 5+ (or a compatible server). Works with
+Requires Go 1.26+ and Redis 5+ (or a compatible server). Works with
 `*redis.Client`, `*redis.ClusterClient` and `*redis.Ring`.
 
 The core package depends only on `go-redis`. Gin and Echo are compiled into

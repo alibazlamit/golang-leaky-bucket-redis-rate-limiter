@@ -1,6 +1,6 @@
 module github.com/alibazlamit/leaky_bucket_redis/benchmarks
 
-go 1.25.0
+go 1.26.0
 
 require (
 	github.com/alibazlamit/leaky_bucket_redis/v3 v3.0.0
