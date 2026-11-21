@@ -126,7 +126,7 @@ func New(client redis.Scripter, rate float64, opts ...Option) (*Limiter, error) 
 	// which only becomes possible above 20,000 per second.
 	exact := float64(time.Second/time.Microsecond) / rate
 	interval := math.Round(exact)
-	if interval < 1 || math.Abs(interval-exact) > exact/100 {
+	if interval < 1 || math.Abs(interval-exact) > min(interval, exact)/100 {
 		return nil, ErrInvalidRate
 	}
 	l := &Limiter{

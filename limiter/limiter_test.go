@@ -44,7 +44,7 @@ func mustNew(t *testing.T, client redis.Scripter, rate float64, opts ...Option) 
 
 func TestNewRejectsBadConfig(t *testing.T) {
 	_, client := setup(t)
-	for _, rate := range []float64{0, -5, math.NaN(), math.Inf(1), 1e7, 700_000, 650_000} {
+	for _, rate := range []float64{0, -5, math.NaN(), math.Inf(1), 1e7, 700_000, 650_000, 90_000, 45_000} {
 		if _, err := New(client, rate); !errors.Is(err, ErrInvalidRate) {
 			t.Errorf("rate %v: got %v, want ErrInvalidRate", rate, err)
 		}
@@ -453,4 +453,22 @@ func TestAppliedRateMatchesConfiguredRate(t *testing.T) {
 		}
 	}
 	srv.SetTime(epoch)
+}
+
+func TestEveryAcceptedRateIsAppliedWithinOnePercent(t *testing.T) {
+	_, client := setup(t)
+
+	for rate := 0.5; rate <= 1e6; rate *= 1.0007 {
+		l, err := New(client, rate)
+		if err != nil {
+			if rate <= 20_000 {
+				t.Fatalf("rate %v was rejected: %v", rate, err)
+			}
+			continue
+		}
+		applied := 1e6 / l.interval
+		if math.Abs(applied-rate) > rate/100 {
+			t.Fatalf("rate %v is applied as %v", rate, applied)
+		}
+	}
 }
